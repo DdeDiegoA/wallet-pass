@@ -1,0 +1,9 @@
+{
+  "formatVersion": 1,
+  "organizationName": "Wallet Pass Spike",
+  "description": "Wallet Pass Spike",
+  "passTypeIdentifier": "pass.com.example.walletpass.spike",
+  "teamIdentifier": "TEAMID1234",
+  "serialNumber": "wallet-pass-spike-1",
+  "generic": {}
+}

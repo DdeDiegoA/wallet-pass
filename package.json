@@ -1,0 +1,49 @@
+{
+  "name": "wallet-pass",
+  "version": "0.1.0",
+  "description": "Wrap an existing QR into Apple Wallet + Google Wallet passes with full lifecycle.",
+  "keywords": [
+    "apple-wallet",
+    "google-wallet",
+    "pkpass",
+    "qr"
+  ],
+  "repository": "TODO: set repo URL before publish",
+  "homepage": "TODO: set repo URL before publish",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "demo": "tsx demo/emit-demo.ts"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/qrcode": "^1.5.6",
+    "tsup": "^8.3.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "@googleapis/walletobjects": "^7.0.0",
+    "passkit-generator": "^3.4.0",
+    "qrcode": "^1.5.4"
+  }
+}

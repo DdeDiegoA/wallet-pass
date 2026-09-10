@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{
+        "type": "command",
+        "command": "pnpm run typecheck",
+        "timeout": 30
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "pnpm test && pnpm run build",
+        "timeout": 120
+      }]
+    }]
+  }
+}
