@@ -1,9 +1,19 @@
 CLAUDE.local.md
 AGENTS.local.md
 .env
+.env.local
+.env.*.local
 node_modules
 dist
 *.bak.*
+
+# secrets / credentials — never commit real values (versioned example: .env.example)
+*.pem
+*.p12
+*.key
+*.mobileprovision
+*service-account*.json
+!.env.example
 
 # BMad / herdr orchestration scaffolding (local tooling, not deliverable)
 .hermad/
