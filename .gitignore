@@ -4,3 +4,10 @@ AGENTS.local.md
 node_modules
 dist
 *.bak.*
+
+# BMad / herdr orchestration scaffolding (local tooling, not deliverable)
+.hermad/
+.agents/
+.claude/skills/
+.opencode/commands/
+_bmad/
