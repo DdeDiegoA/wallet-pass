@@ -3,6 +3,10 @@
 > Current phase, latest decisions, and next steps. Keep it short.
 
 ## Fase actual
+**v1 código completo (2026-09-21).** Backlog v1 ejecutado y verificado: #1/#1b (serial/issuerId), #2 (consume dual-tier, mergeable tras QA r2: H1 enqueue async-reject, H2 tests outbox-falla, H3 docs EXPIRED→completed), #3 (firma Apple real ejerciada con cert self-signed — test corrió, .pkpass estructuralmente válido), #4 (fan-out APNs + contrato sendPush documentado, arch/index.md:96), #5 (branding.logo removido), #9 (F10 eventName→textModules + guard latin-1). Tests 79→94, typecheck 0. Pendiente solo owner-gated: #6 npm (nombre — wallet-pass tomado en npm; DIFERIDO por Diego) y #8 (credenciales reales Apple+Google). Ver `docs/specs/backlog-v1.md`. Riesgo de mercado (PRD §11) sigue abierto.
+
+**Realineamiento de scope v1 (2026-09-21).** Auditoría de producto encontró que el PRD/spec describían un "ciclo de vida completo" (`update/expire/revoke`) como si ya fuera v1, cuando el código real solo cubre crear+consumir. v1 se formaliza como "crear pase + darlo por consumido" (dual-tier redeem: Tier A offline siempre, Tier B best-effort con degradación silenciosa). `update/expire/revoke` genérico pasa a v2. Ver `docs/decisions.md` → `2026-09-21-v1-scope-realineado` y `PRD.md` §4/§8 (actualizados). Riesgo de mercado sigue abierto, no se cierra con esto.
+
 **Todas las fases del PRD (0-4) cerradas (2026-09-07).** `wallet-pass` v0.1.0: DSL unificado, lifecycle Apple WS + Google REST, seguridad (validación tipada, credenciales explícitas/rotación, audit log), README + demo + CHANGELOG. DoD: 79 tests, exit 0, `pnpm run demo` corre limpio en dry-run (sin credenciales reales en este entorno).
 
 **Post-Fase 4 (2026-09-09):** Ticket rendering HTML. `src/ticket-render.ts` export renderTicketHtml (genera HTML de pase con chips, QR primario/secundarios, sanitización+escape). `WalletPassInputBase` + campo `secondaryQrs?`. Hook SessionEnd wired in settings.json para cleanup.

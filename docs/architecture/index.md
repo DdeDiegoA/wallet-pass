@@ -53,6 +53,74 @@ const google: { url: string; jwt: string } = await pass.google();
 - **Validación tipada por passType**: antes de emitir se valida el esquema contra el tipo de pase (campos requeridos, formatos); la sanitización básica de strings ya vive en `src/sanitize.ts` desde Fase 1.
 - **Audit log `onEmit`**: hook opcional que recibe solo metadata hasheada del pase (nunca el QR ni el serial crudo) para log de emisión sin PII.
 
+## Consumo / Redeem dual-tier (v1, diseño — no implementado)
+
+v1 = crear pase + darlo por consumido. No hay `.consume()`/`.redeem()` ni estado "consumido" en el código aún; la lib no hostea ese estado (mismo patrón que `RegistrationStorage` en Fase 2: el integrador implementa persistencia, la lib expone funciones puras + storage interface inyectable).
+
+**Serial (F4)** — el torniquete necesita derivar el mismo serial que usa la lib sin instanciar `WalletPass`. `hashSerial(qr)` (`src/wallet-pass.ts:100-102`) se exporta tal cual (mismo nombre, solo se le quita el scope privado):
+```ts
+export function hashSerial(qr: string): string  // ya existe, solo pasa a exportado
+```
+
+**Tier A (siempre, offline) — atomicidad (F1, bloqueante)** — `ConsumeStorage` debe exponer un primitivo check-then-set atómico, no `get`+`set` separados (race de dos escaneos concurrentes del mismo serial → doble admisión):
+```ts
+export interface ConsumeStorage {
+  /** true solo la primera vez que se llama para este serial; false si ya estaba consumido.
+   *  El integrador DEBE implementar esto atómico (constraint UNIQUE + INSERT, Redis SETNX, o CAS) —
+   *  un get()+set() no atómico no cumple la garantía. */
+  markConsumedIfNew(serial: string): boolean | Promise<boolean>;
+}
+
+export async function consumeTierA(
+  serial: string,
+  storage: ConsumeStorage,
+): Promise<{ status: "accepted" | "rejected"; reason?: "already-consumed" }> {
+  const isNew = await storage.markConsumedIfNew(serial);
+  return isNew ? { status: "accepted" } : { status: "rejected", reason: "already-consumed" };
+}
+```
+Sin red a Apple/Google.
+
+**Tier B (best-effort, con red) — estado Google (F3)** — usar `state: "completed"` (ya es un valor válido del tipo existente, `google-lifecycle.ts:57`), NUNCA `"expired"`: en el enum de Google Wallet `EventTicketObject.state`, `COMPLETED` significa "usado/redimido", `EXPIRED` es lapso por tiempo — son casos distintos y v2 (`update/expire`) sí necesitará `EXPIRED` para su propio flujo, así que no se puede reusar aquí sin ambigüedad semántica.
+```ts
+export async function reflectConsumedTierB(opts: {
+  serial: string;
+  outbox?: ConsumeOutbox; // F2 — si se omite, fallback es solo swallow+log (no recomendado)
+  google?: { client: EventTicketObjectClient; classId: string; objectId: string };
+  apple?: { registrationStorage: RegistrationStorage; sendPush: (pushToken: string) => Promise<void> };
+}): Promise<{ google?: "completed" | "failed" | "skipped"; apple?: "pushed" | "failed" | "skipped" }>
+```
+- Google: `upsertEventTicketObject(client, { ...input, state: "completed" })` (`google-lifecycle.ts:101-117`).
+- Apple: push de trigger (payload vacío) a los `pushToken` registrados para ese serial (`RegistrationStorage.entries()`, `apple-webservice.ts:45-50`) → dispara que el device llame `getLatestPass` (`apple-webservice.ts:154-160`), que reconstruye el `.pkpass` desde el storage del integrador.
+
+**Contrato de `sendPush` (H5)** — `sendPush: (pushToken: string) => Promise<void>` (`src/consume.ts:42`) toma un solo argumento, deliberado, no incompleto: (a) `passTypeIdentifier` (topic APNs) y `environment` (sandbox/prod) son parte de la AUTH del cliente APNs, propiedad del integrador — viven en el closure con el que él construye su `sendPush`, no en la firma (mismo trust boundary que sus certs WWDR, igual que en Seguridad Fase 3); (b) la lib no vendorea cliente APNs, por eso no hay lugar en la firma para esas credenciales; (c) la poda de tokens muertos (un push que devuelve "token inválido/no registrado") es responsabilidad del integrador sobre su propio `RegistrationStorage` — él ve la respuesta de APNs y llama su propio `delete`/equivalente, la lib no necesita ver ese resultado; (d) el push es solo un trigger vacío, dispara `getLatestPass` en el device, no transporta payload. Veredicto: la firma NO debe crecer con `serial` — `reflectConsumedTierB` ya tiene `opts.serial` en el mismo scope donde el integrador arma su `sendPush`, así que puede cerrarlo por clausura si quiere logging/correlación; pasarlo por parámetro sería redundante.
+
+**Outbox de reintento (F2)** — un fallo de Tier B ya no se traga silenciosamente: si `opts.outbox` está presente, cada leg fallida se encola para reintento en vez de solo loguearse. Contrato mínimo (no es un broker, es un hook que el integrador drena con su propio worker/cron):
+```ts
+export interface ConsumeOutboxEntry {
+  serial: string;
+  leg: "google" | "apple";
+  attempts: number;
+  lastError?: string;
+  enqueuedAt: number;
+}
+
+export interface ConsumeOutbox {
+  enqueue(entry: ConsumeOutboxEntry): unknown;
+}
+```
+El integrador drena llamando de nuevo a `reflectConsumedTierB` para los seriales pendientes (la operación es upsert/push, idempotente — reintentar es seguro). Tier A nunca se revierte por un fallo de Tier B; mientras el outbox tiene la entrada pendiente, el pass puede mostrarse "activo" en la wallet aunque el torniquete ya lo rechazó — ventana conocida, cerrada cuando el drain reintenta con éxito.
+
+**APNs**: v1 mínimo — solo push de trigger (empty push), no APNs genérico. La lib expone el payload/helper puro; el integrador envía con su propio cliente APNs (mismo trust boundary que sus certs WWDR). Sin esto, Tier B en Apple es efectivamente mudo (el pass solo refresca con pull-to-refresh manual). Degradación limpia si el integrador no lo configura: Tier B Apple no dispara, Tier A no se ve afectado.
+
+**Reparto lib/integrador**: lib = funciones puras (`consumeTierA`, `reflectConsumedTierB`, `hashSerial`) + storage/outbox interfaces; integrador = persistencia del consumido (atómica), drain del outbox, scanner/torniquete, endpoint HTTPS, credenciales/envío APNs.
+
+**Gap bloqueante (owner: PM)**: `src/apple.ts:113` y `src/google.ts:77` hardcodean serial/objectId (`"wallet-pass-spike-1"`) — todo pase emitido hoy colisiona en el mismo serial/objeto. `hashSerial(qr)` (`wallet-pass.ts:100-102`) debe volverse el serial/objectId real antes de que consume/redeem funcione con más de un ticket.
+
+**`branding.logo`** (`wallet-pass.ts:31`): campo muerto, no leído en `apple.ts` ni `google.ts` (confirmado por grep). Recomendación: remover del tipo, no implementar consumo de imagen — no es parte del alcance dual-tier.
+
+**Sanitización / anti-XSS**: sin gap. `ticket-render.ts:12-19` ya escapa HTML en el único surface HTML-renderizado; `sanitizeText` (control-char strip) es correcto para los campos nativos Apple/Google (no son contexto HTML). §9.3 se cumple donde aplica.
+
 ## Decisions
 See `docs/decisions.md`.
 

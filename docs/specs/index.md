@@ -6,5 +6,9 @@
 Run `/speckit-specify` to create a feature spec. Output lands in `docs/specs/<feature-name>/`.
 Run `/speckit-plan` for the implementation plan. Run `/speckit-converge` to assess code against spec.
 
+## Backlog activo
+- `spec.md` — spec de feature (scope v1: crear + consumir, realineado 2026-09-21).
+- `backlog-v1.md` — issues #1-#8 con resolución escalable y DoD. Orden de ejecución.
+
 ## Design System
 UI/UX specifications and visual direction live in `docs/design-system/`.

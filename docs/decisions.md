@@ -28,6 +28,13 @@
 - **Status**: active
 - **Date**: 2026-09-07
 
+## 2026-09-21-v1-scope-realineado
+- **Context**: Auditoría de producto (John/PM) sobre el repo existente v0.1.0 encontró contradicciones entre el PRD/spec (que describían un "ciclo de vida completo" `update/expire/revoke` como si ya fuera v1) y el código real: Apple firma nunca corrió con cert real ni tiene test de firma; `branding.logo` (Buffer) declarado y nunca consumido; sanitización solo quita control chars mientras §9.3 promete anti-XSS; nombre de paquete npm sigue siendo placeholder.
+- **Decision**: v1 se formaliza como **"crear pase + darlo por consumido"**, no reescritura del repo. In: (1) emisión real verificada Apple+Google, (2) consumo/redeem dual-tier — Tier A offline siempre, Tier B best-effort (Google `state:completed`, Apple Web Service + 1 push APNs solo para "consumido"), degradando silenciosamente a Tier A si falla red/server, (3) resolver `branding.logo` (endurecer o quitar del API), (4) reconciliar claim de sanitización, (5) publicar npm con nombre final + gate de credenciales. Out (pasa a v2): API de lifecycle orquestada genérica `update/expire/revoke`, push APNs general, HSM/PKCS#11 real (ya decidido fuera antes), tipos boarding/loyalty.
+- **Consequences**: `PRD.md` §4 y §8 y `docs/specs/spec.md` §1/§2/§5 actualizados para reflejar v1 vs v2 explícito. El riesgo de mercado (`2026-09-06-gate-override`, riesgos #1/#2 del PRD) **sigue abierto y no se cierra** con este realineamiento. Nuevo gap detectado durante diseño de consumo (Winston, arquitectura): serial/objectId hardcodeado en `apple.ts`/`google.ts` colisiona entre pases — prerequisito bloqueante de implementación, no cambio de alcance.
+- **Status**: active
+- **Date**: 2026-09-21
+
 ## Next Decision Needed
 - Nombre final del paquete (PRD §11, decisión abierta #1).
 - Apple lifecycle: ¿handler propio delgado o depender de `passkit-webservice-toolkit`/`hapns`? (PRD recomienda handler propio).

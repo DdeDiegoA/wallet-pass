@@ -1,6 +1,16 @@
 # wallet-pass
 > Node/TS library: wraps an existing QR into Apple Wallet + Google Wallet passes, full lifecycle. See `PRD.md`. Current phase/decisions: `docs/context.md` (also wired via `opencode.json` → `instructions`).
 
+## Herdr team (workspace `w1N`, "wallet-pass")
+Recreated 2026-09-21 via hermad — un tab por departamento, un agente por tab. Idle, awaiting tasks.
+- Tab **Product** (`w1N:t1`) — `pm-walletpass` (John, PM), pane w1N:p1
+  - `orchestrator-walletpass` (claude, model `claude-opus-4-8[1m]`), pane w1N:p5 — added 2026-09-21. Coordinates the wallet-pass team locally (routes to pm/ux/architect/dev, waits on blocked/idle/done); no BMad persona assigned (not a BMad role), briefed directly with a coordinator prompt.
+- Tab **Design** (`w1N:t2`) — `ux-walletpass` (Sally, UX), pane w1N:p2
+- Tab **Architecture** (`w1N:t3`) — `architect-walletpass` (Winston, Architect), pane w1N:p3
+- Tab **Engineering** (`w1N:t4`) — `dev-walletpass` (Amelia, Dev), pane w1N:p4 — swapped 2026-09-21 from claude to `opencode` running `opencode-go/deepseek-v4.1-flash`; re-loaded Amelia persona via `/bmad-agent-dev`.
+Workspaces `wH`, `w1K`, `w1M` (old/duplicate) fueron cerrados.
+Project status: PRD fases 0-4 cerradas, v0.1.0 publicado. Next work is open-ended — route intent to whichever persona fits.
+
 ## Build & Test
 - Build: `pnpm run build` (tsup → ESM + `.d.ts`)
 - Test: `pnpm test` (vitest)

@@ -33,19 +33,31 @@ Librería **Node.js / TypeScript** (npm/pnpm) que toma un **código QR que el in
 
 ## 4. Alcance v1
 
-**In** (v1):
-- Emitir `.pkpass` (Apple) y pase Google Wallet a partir de **un QR existente** + metadatos.
-- **QR-first**: recibir el payload del QR (string) y mapearlo correctamente a `barcode` en ambos formatos, con validación/sanitización en el límite.
-- **Personalización**: colores, logo, campos (header/primary/secondary/auxiliary/back en Apple; class-template vs object fields en Google).
-- **Ciclo de vida completo**: crear, actualizar, expirar, revocar (Apple Web Service Protocol **handlers** + Google REST **cliente**).
-- **Seguridad empaquetada**: inyección segura de claves/certificados, sin hardcode, least-privilege, sanitización anti-inyección.
-- TypeScript con tipos completos, ESM.
+> **Realineado 2026-09-21** (formalización del repo existente, no reescritura — ver `docs/decisions.md` → `2026-09-21-v1-scope-realineado`). v1 = **"crear pase + darlo por consumido"**, honesto y verificado. El PRD original prometía una API de lifecycle completa (`update/expire/revoke`) como si ya existiera; **eso pasa a v2**. Esta sección reemplaza la anterior.
 
-**Out (v1):**
+**In (v1):**
+1. **Crear**: `.pkpass` (Apple) + JWT/link Google Wallet a partir de **un QR existente** + metadatos, con **emisión real verificada** en ambas plataformas.
+   - Google: ya emite real y probado (79 tests, dry-run limpio).
+   - Apple: código de firma existe pero **nunca se ejecutó con certificado real ni tiene test de firma** — v1 cierra ese hueco antes de considerarse completo.
+2. **Consumir/redeem** con degradación **dual-tier**:
+   - **Tier A (siempre, offline)**: validar el QR contra el registro del integrador → aceptar/rechazar en puerta, marcar consumido, rechazar 2º escaneo.
+   - **Tier B (best-effort, con red + server del proveedor)**: reflejar "usado" en la wallet — Google `state: "completed"` vía REST (`COMPLETED` = usado/redimido; `EXPIRED` es lapso por tiempo, reservado a v2 — ver `docs/architecture/index.md:84`); Apple vía los handlers Web Service existentes + **un** push APNs (única pieza de push en v1, solo para "consumido"). Si falla la red o el server del proveedor, degrada silenciosamente a Tier A.
+3. **QR-first**: recibir el payload del QR (string) y mapearlo correctamente a `barcode` en ambos formatos, con validación/sanitización en el límite.
+4. **Personalización**: colores, campos (header/primary/secondary/auxiliary/back en Apple; class-template vs object fields en Google). `branding.logo` (Buffer): hoy es un campo declarado y **nunca consumido** — v1 decide entre endurecerlo (conectarlo a la generación real) o quitarlo del API si no entra en el corte de v1.
+5. **Seguridad empaquetada**: inyección segura de claves/certificados, sin hardcode, credenciales rotables. Sanitización: hoy solo quita control chars; §9.3 promete protección anti-inyección/XSS — v1 reconcilia esa brecha (endurecer sanitización o recortar el claim documentado, no dejarlo contradictorio).
+6. **Publicar en npm**: nombre de paquete final (hoy placeholder) + gate de credenciales reales antes de publicar.
+7. TypeScript con tipos completos, ESM.
+
+**Out (v1) — pasa a v2:**
+- **API de lifecycle orquestada genérica** `update/expire/revoke` como pieza única (existía en el PRD original; el código real solo cubre crear+consumir). Incluye `expirationDate`/`relevantDate`/`validTimeInterval` como mecanismo de negocio.
+- Push APNs general (fuera del único push de "consumido" de Tier B).
+- PKCS#11/HSM real (ya decidido fuera en `2026-09-07-seguridad-v1-scope`).
+- Tipos especializados completos (boarding pass, loyalty con puntos, transit) — v1 se enfoca en **event-ticket (EventTicket)** y **generic**.
 - Servidor hosted / multi-tenant.
 - NFC, smart tap, rotate barcodes (Google `RotatingBarcode`), beacons, ubicaciones geo — avanzados.
-- Tipos especializados completos (boarding pass, loyalty con puntos, transit) — v1 se enfoca en **event-ticket (EventTicket)** y **generic**, suficiente para el cine y el 80% de tickets.
 - App Android nativa (SDK) — el link "Add to Wallet" cubre web/email/SMS.
+
+**Riesgo de mercado — permanece abierto, NO se cierra con este realineamiento**: la relevancia de mercado (riesgo #1 "pegar el QR", riesgo #2 single-platform, §11) sigue sin validar. El owner decidió avanzar igual (`docs/decisions.md` → `2026-09-06-gate-override`).
 
 ## 5. Arquitectura de alto nivel
 
@@ -101,22 +113,25 @@ const pass = new WalletPass({
   branding: { logo: buffer, backgroundColor: "#000000" },
 });
 
-// Emitir
+// Emitir (v1, real)
 const applePkpass: Buffer  = await pass.apple();   // .pkpass firmado
 const google: { url: string; jwt: string } = await pass.google(); // link add-to-wallet
 
-// Ciclo de vida (orquesta ambos)
-await pass.update({ holder: { seat: "G2" } });  // Apple WS + Google PATCH
-await pass.expire();                              // con relevantDate/state
-await pass.revoke();
+// Consumo Tier B (v1, real): funciones standalone, NO métodos de WalletPass.
+// Apple (apple-webservice.ts) — el integrador monta estas rutas en su server:
+import { registerDevice, getLatestPass, parseApplePassAuthToken } from "wallet-pass";
+// Google (google-lifecycle.ts) — el integrador la llama tras confirmar Tier A:
+import { upsertEventTicketObject } from "wallet-pass";
 
-// Handler para Apple Web Service (el integrador lo monta en su server)
-app.post("/wallet/v1/...", pass.appleWebServiceHandler());
+// v2 (fuera de v1 — NO existe, no implementar así):
+// await pass.update({ holder: { seat: "G2" } });
+// await pass.expire();
+// await pass.revoke();
 ```
 
 **Notas de diseño:**
 - El `qr` string se **valida y mapea**: a Apple `barcode.message` + `messageEncoding: iso-8859-1` y a Google `barcode.value` (`type: QR_CODE`). Si el integrador prefiere, acepta `qr` ya tipado (URL, token, etc.) para aplicar reglas por tipo. **Sanitizar SIEMPRE** el payload crudo antes de volcarlo a campos que se renderizan.
-- `pass.appleWebServiceHandler()` es la pieza que hace trivial el endpoint HTTPS que Apple exige — sin él, el ciclo de vida Apple es inviable.
+- No existe `pass.appleWebServiceHandler()` ni una factory de handlers. Los endpoints del Apple Web Service Protocol son funciones standalone en `apple-webservice.ts` (`registerDevice`, `unregisterDevice`, `getSerialsForDevice`, `getLatestPass`, `parseApplePassAuthToken`, `logErrors`); el integrador las conecta a sus propias rutas. `WalletPass` solo expone `serial`, `apple()` y `google()`.
 
 ## 7. Personalización (Apple + Google, confirmado contra docs)
 
@@ -134,31 +149,31 @@ app.post("/wallet/v1/...", pass.appleWebServiceHandler());
 - **Generic**: apariencia vive en el **object** — `cardTitle`, `header`, `subheader`, `logo`, `hexBackgroundColor`, `heroImage`, `wideLogo`; contenido: `textModulesData[]`, `linksModuleData`, `messages[]` (máx 10), `validTimeInterval`.
 - **Distribución**: link `https://pay.google.com/gp/v/save/<signed_jwt>` embebible en el email existente / SMS / web.
 
-## 8. Ciclo de vida completo
+## 8. Ciclo de vida
 
-### 8.1 Creación
-- **Apple**: generar `.pkpass` firmado; distribuir como archivo/URL (Safari/Wallet lo importa).
-- **Google**: **just-in-time** (class+object incrustados en el JWT, sin REST previo) o **pre-creada** (class reutilizable por ID + object por usuario); firmar JWT RS256 → link.
+> **Realineado 2026-09-21**: el PRD original describía un "ciclo de vida completo" (`update/expire/revoke` como API única) como si fuera v1. El código real solo implementa **crear + consumir**; el resto es v2. Esta sección separa explícitamente ambos.
 
-### 8.2 Actualización (update push)
-- **Apple — Web Service Protocol** (Apple llama a TU server, HTTPS, header `Authorization: ApplePass <authenticationToken>`):
-  - `POST /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}` — registro (`{pushToken}`).
-  - `GET  /v1/passes/{passTypeIdentifier}/{serialNumber}` — **devuelve el .pkpass actualizado** (304 si no cambió).
-  - `GET  /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}?passesUpdatedSince=` — serials a refrescar.
-  - `DELETE /v1/devices/{deviceLibraryIdentifier}/registrations/{passTypeIdentifier}/{serialNumber}` — desregistro.
-  - `POST /v1/log` — logging.
-  - **Push (APNs)**: notificación `aps` para disparar refresh (opcional v1; habilita `hapns`).
-- **Google — REST**: `PATCH`/update de class/object (`*.patch`), cambios de `state` (`ACTIVE`/`EXPIRED`/`SUSPENDED`), campos con `updateTime`. El integrador **llama** a Google (no al revés).
+### 8.1 v1 — Creación
 
-### 8.3 Expiración
-- **Apple**: `expirationDate` + `relevantDate` en el pass; la wallet lo refleja.
-- **Google**: `validTimeInterval` y/o `state: "EXPIRED"` vía update.
+- **Apple**: generar `.pkpass` firmado; distribuir como archivo/URL (Safari/Wallet lo importa). **Pendiente de cierre v1**: ejecutar con certificado Pass Type ID + WWDR reales y agregar test de firma — hoy el código nunca corrió contra un cert real.
+- **Google**: **just-in-time** (class+object incrustados en el JWT, sin REST previo) o **pre-creada** (class reutilizable por ID + object por usuario); firmar JWT RS256 → link. Ya emite real y probado.
 
-### 8.4 Revocación
-- **Apple**: marcar `voided: true` y redistribuir vía Web Service + push.
-- **Google**: cambiar `state` a `EXPIRED`/eliminación, con **callbacks** de save/delete si el integrador quiere tracking (opcional v1).
+### 8.2 v1 — Consumo (redeem), degradación dual-tier
 
-> La librería expone **una sola API de estado** (`update/expire/revoke`) y traduce a los dos mecanismos dispares. Ese es el "ciclo de vida orquestado" que hoy nadie empaqueta.
+- **Tier A — offline, siempre disponible**: el integrador valida el QR contra su propio registro (backend/DB del cine) → acepta/rechaza en puerta, marca el pase como consumido localmente, rechaza un segundo escaneo. No depende de Apple ni Google.
+- **Tier B — best-effort, requiere red + server del proveedor**: al confirmarse el consumo en Tier A, la librería intenta reflejar "usado" en la wallet:
+  - **Google**: `PATCH` a `state: "completed"` vía REST.
+  - **Apple**: usa los handlers Web Service **ya existentes** (`GET /v1/passes/...` devuelve el `.pkpass` marcado como usado) + **un único push APNs** para disparar el refresh — esta es la **única pieza de push en v1**, exclusiva para el evento "consumido". No hay push genérico para otros cambios.
+  - Si la red o el server del proveedor fallan, Tier B **degrada silenciosamente** a Tier A (el rechazo en puerta ya ocurrió; el reflejo visual en la wallet queda pendiente/no bloqueante).
+
+### 8.3 v2 — Fuera de v1 (lifecycle orquestado genérico)
+
+- **API única `update/expire/revoke`** que traduce a los dos mecanismos dispares de Apple y Google para *cualquier* cambio de campo, no solo "consumido".
+- `expirationDate`/`relevantDate` (Apple) y `validTimeInterval` (Google) como mecanismo de negocio de expiración con fecha, más allá del `state: "completed"` de consumo — `state: "EXPIRED"` queda reservado a este flujo de v2, no al consumo.
+- `voided: true` (Apple) y callbacks de save/delete (Google) para revocación general (no ligada a consumo).
+- Push APNs genérico (más allá del único push de "consumido" de Tier B v1).
+
+> v1 no expone una "API de estado" genérica — expone crear + consumir. El "ciclo de vida orquestado" completo (`update/expire/revoke` como pieza única) es la promesa de v2; documentarlo como si ya existiera en v1 fue el error que este realineamiento corrige.
 
 ## 9. Seguridad
 
