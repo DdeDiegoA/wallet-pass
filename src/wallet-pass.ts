@@ -27,7 +27,6 @@ export interface WalletPassHolder {
 }
 
 export interface WalletPassBranding {
-  logo?: Buffer;
   backgroundColor?: string;
   foregroundColor?: string;
   labelColor?: string;
@@ -63,6 +62,12 @@ export interface WalletPassOptions {
   /** Explicit credentials, prioritized over env vars — rotation/multi-tenant without a process restart (PRD.md §9.2). */
   appleCredentials?: AppleCredentials;
   googleCredentials?: GoogleCredentials;
+  /**
+   * Google Wallet issuer ID (from the Pay & Wallet console). Scopes the saved
+   * object's id/class to the real issuer instead of the spike default. Falls
+   * back to the GOOGLE_ISSUER_ID env var.
+   */
+  googleIssuerId?: string;
   onEmit?: (event: WalletPassEmitEvent) => void;
 }
 
@@ -92,8 +97,12 @@ export function validateWalletPassInput(input: WalletPassInput): void {
   }
 }
 
-/** First 16 hex chars (64 bits) of sha256(qr) — never the raw QR/serial (PII/sensitive data, PRD.md §9.2). */
-function hashSerial(qr: string): string {
+/**
+ * Canonical serial: first 16 hex chars (64 bits) of sha256(qr) — never the raw
+ * QR/serial (PII/sensitive data, PRD.md §9.2). Pure function of the QR, so the
+ * same QR always yields the same serial and distinct QRs never collide.
+ */
+export function hashSerial(qr: string): string {
   return createHash("sha256").update(qr).digest("hex").slice(0, 16);
 }
 
@@ -171,9 +180,23 @@ export class WalletPass {
     validateWalletPassInput(input);
   }
 
+  /**
+   * Canonical serial for this pass — the single derivation point shared by every
+   * format (Apple serialNumber, Google objectId, consume index). Function of the
+   * QR alone: reproducible offline, no state.
+   */
+  get serial(): string {
+    return hashSerial(this.input.qr);
+  }
+
   /** Emits a signed .pkpass buffer. Throws if Apple credentials are missing (spike dry-run). */
   async apple(): Promise<Buffer> {
-    const result = await emitApplePassSpike(this.input.qr, mapToAppleFields(this.input), this.options.appleCredentials);
+    const result = await emitApplePassSpike(
+      this.input.qr,
+      mapToAppleFields(this.input),
+      this.options.appleCredentials,
+      this.serial,
+    );
     if (result.dryRun) throw new Error(`apple() dry-run: ${result.reason}`);
     this.audit("apple");
     return result.pkpass!;
@@ -183,9 +206,10 @@ export class WalletPass {
   async google(): Promise<{ url: string; jwt: string }> {
     const result = emitGoogleWalletSpike(
       this.input.qr,
-      "spike-issuer",
+      this.options.googleIssuerId ?? process.env.GOOGLE_ISSUER_ID,
       mapToGoogleFields(this.input),
       this.options.googleCredentials,
+      this.serial,
     );
     if (result.dryRun) throw new Error(`google() dry-run: ${result.reason}`);
     this.audit("google");
@@ -196,7 +220,7 @@ export class WalletPass {
     this.options.onEmit?.({
       wallet,
       passType: this.input.type,
-      serialHash: hashSerial(this.input.qr),
+      serialHash: this.serial,
       timestamp: new Date(),
     });
   }

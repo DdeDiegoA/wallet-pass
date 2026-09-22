@@ -52,3 +52,12 @@ export type {
   EventTicketSeat,
   EventTicketObjectInput,
 } from "./google-lifecycle.js";
+
+// v1 — Consumo dual-tier (docs/architecture/index.md "Consumo dual-tier").
+export { consumeTierA, reflectConsumedTierB, hashSerial } from "./consume.js";
+export type {
+  ConsumeStorage,
+  ConsumeOutbox,
+  ConsumeOutboxEntry,
+  ReflectConsumedTierBOptions,
+} from "./consume.js";

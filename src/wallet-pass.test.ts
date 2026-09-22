@@ -298,3 +298,58 @@ describe("onEmit audit callback (PRD.md §9.2, no PII)", () => {
     expect(events).toHaveLength(0);
   });
 });
+
+describe("canonical serial (backlog-v1 #1)", () => {
+  it("is deterministic: same qr -> same serial", () => {
+    const a = new WalletPass({ ...baseInput, qr: "same-qr" });
+    const b = new WalletPass({ ...baseInput, qr: "same-qr" });
+    expect(a.serial).toBe(b.serial);
+    expect(a.serial).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("is unique per qr: different qrs -> different serials", () => {
+    const a = new WalletPass({ ...baseInput, qr: "qr-a" });
+    const b = new WalletPass({ ...baseInput, qr: "qr-b" });
+    expect(a.serial).not.toBe(b.serial);
+  });
+
+  it("propagates the serial to the Google objectId (issuerId.serial)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const credentials = {
+      serviceAccountJson: JSON.stringify({
+        client_email: "a@b.com",
+        private_key: privateKey.export({ type: "pkcs1", format: "pem" }).toString(),
+      }),
+    };
+    const pass = new WalletPass({ ...baseInput, qr: "qr-google" }, { googleCredentials: credentials });
+    delete process.env.GOOGLE_ISSUER_ID;
+    const { jwt } = await pass.google();
+    const [, payloadB64] = jwt.split(".");
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
+    expect(payload.payload.genericObjects[0].id).toBe(`spike-issuer.${pass.serial}`);
+  });
+});
+
+describe("Google issuer scoping (backlog-v1 #1b)", () => {
+  it("injects the DSL googleIssuerId into classId and objectId, overriding the spike default", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const credentials = {
+      serviceAccountJson: JSON.stringify({
+        client_email: "a@b.com",
+        private_key: privateKey.export({ type: "pkcs1", format: "pem" }).toString(),
+      }),
+    };
+    const pass = new WalletPass(
+      { ...baseInput, qr: "qr-issuer" },
+      { googleCredentials: credentials, googleIssuerId: "my-real-issuer" },
+    );
+    const { jwt } = await pass.google();
+    const [, payloadB64] = jwt.split(".");
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"));
+    const [cls] = payload.payload.genericClasses;
+    const [obj] = payload.payload.genericObjects;
+    expect(cls.id).toBe("my-real-issuer.wallet-pass-spike-class");
+    expect(obj.id).toBe(`my-real-issuer.${pass.serial}`);
+    expect(obj.classId).toBe("my-real-issuer.wallet-pass-spike-class");
+  });
+});

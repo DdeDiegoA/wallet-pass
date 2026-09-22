@@ -53,6 +53,7 @@ export function emitGoogleWalletSpike(
   issuerId = "spike-issuer",
   classFields: GoogleClassFields = {},
   credentials?: GoogleCredentials,
+  serial = "wallet-pass-spike-1",
 ): GoogleWalletResult {
   const raw = credentials?.serviceAccountJson ?? process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) {
@@ -74,7 +75,7 @@ export function emitGoogleWalletSpike(
     return { dryRun: true, reason: "GOOGLE_SERVICE_ACCOUNT_JSON no es JSON válido" };
   }
 
-  const objectId = `${issuerId}.wallet-pass-spike-1`;
+  const objectId = `${issuerId}.${serial}`;
   const classId = `${issuerId}.wallet-pass-spike-class`;
   const origins = (process.env.GOOGLE_JWT_ORIGINS ?? "")
     .split(",")
