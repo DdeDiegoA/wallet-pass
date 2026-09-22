@@ -22,6 +22,11 @@ describe("QR -> barcode mapping", () => {
     expect(() => toGoogleBarcode("")).toThrow();
   });
 
+  it("throws for a QR not representable in latin-1 instead of mis-encoding it", () => {
+    expect(() => toAppleBarcode("ticket-🎟️")).toThrow(/ISO-8859-1/);
+    expect(toAppleBarcode("ticket-123").message).toBe("ticket-123");
+  });
+
   it("strips control chars and truncates the QR payload", () => {
     const dirty = "q\x00r\n".padEnd(600, "x");
     expect(toAppleBarcode(dirty).message).not.toMatch(/[\x00-\x1F\x7F]/);

@@ -17,6 +17,11 @@ export interface GoogleBarcode {
 
 export function toAppleBarcode(qr: string, altText?: string): AppleBarcode {
   if (!qr) throw new Error("qr payload is required");
+  if (/[^\x00-\xFF]/.test(qr)) {
+    throw new Error(
+      "QR payload has characters outside ISO-8859-1 (latin-1) and would be silently mis-encoded in an Apple barcode",
+    );
+  }
   return {
     format: "PKBarcodeFormatQR",
     message: sanitizeText(qr),

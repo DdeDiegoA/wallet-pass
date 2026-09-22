@@ -62,6 +62,7 @@ export async function emitApplePassSpike(
   qr: string,
   fields: ApplePassFields = {},
   credentials?: AppleCredentials,
+  serialNumber = "wallet-pass-spike-1",
 ): Promise<ApplePassResult> {
   let signerCert: Buffer;
   let wwdr: Buffer;
@@ -92,25 +93,29 @@ export async function emitApplePassSpike(
     passphrase = process.env.APPLE_PASS_CERT_PASSPHRASE;
   }
 
+  // forge.pki reads ONLY the first PEM block of whatever buffer it's handed
+  // (`pem.decode(pem)[0]`), for BOTH certificateFromPem and decryptRsaPrivateKey.
+  // So the combined cert+key buffer cannot be passed to both fields — split it.
+  const combined = signerCert.toString("utf-8");
+  const certPem = combined.match(
+    /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/,
+  )?.[0];
+  const keyPem = combined.match(
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/,
+  )?.[0];
+
   const pass = await PKPass.from(
     {
       model: MODEL_DIR,
       certificates: {
         wwdr,
-        signerCert,
-        // APPLE_PASS_CERT must be a COMBINED PEM: the Pass Type ID certificate
-        // block AND its RSA private key block concatenated in one file
-        // (`cat signer.pem signer.key > APPLE_PASS_CERT.pem`). passkit-generator
-        // parses signerCert/signerKey independently (forge.pki.certificateFromPem
-        // vs forge.pki.decryptRsaPrivateKey), each pulling only its matching PEM
-        // block out of whichever buffer it's given — so pointing both fields at
-        // the same combined buffer works. A cert-only PEM here breaks signing.
-        signerKey: signerCert,
+        signerCert: certPem ? Buffer.from(certPem) : signerCert,
+        signerKey: keyPem ? Buffer.from(keyPem) : signerCert,
         signerKeyPassphrase: passphrase,
       },
     },
     {
-      serialNumber: "wallet-pass-spike-1",
+      serialNumber,
       passTypeIdentifier: process.env.APPLE_PASS_TYPE_IDENTIFIER,
       teamIdentifier: process.env.APPLE_TEAM_IDENTIFIER,
       ...(fields.logoText ? { logoText: fields.logoText } : {}),

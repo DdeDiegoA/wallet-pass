@@ -43,8 +43,11 @@ describe("buildEventTicketObject", () => {
     });
 
     expect(object.state).toBe("EXPIRED");
-    expect(object.ticketHolderName).toBe("Premiere");
-    expect(object.textModulesData).toEqual([{ header: "Venue", body: "Main Hall" }]);
+    expect(object.ticketHolderName).toBeUndefined();
+    expect(object.textModulesData).toEqual([
+      { header: "Event", body: "Premiere" },
+      { header: "Venue", body: "Main Hall" },
+    ]);
     expect(object.seatInfo).toEqual({
       seat: { defaultValue: { language: "en", value: "12" } },
       row: { defaultValue: { language: "en", value: "A" } },
@@ -60,7 +63,8 @@ describe("buildEventTicketObject", () => {
       objectId: "issuer.obj1",
       eventName: "Bad\x00Name",
     });
-    expect(object.ticketHolderName).toBe("BadName");
+    expect(object.ticketHolderName).toBeUndefined();
+    expect(object.textModulesData).toEqual([{ header: "Event", body: "BadName" }]);
   });
 });
 
@@ -84,7 +88,12 @@ describe("upsertEventTicketObject", () => {
 
     expect(client.get).toHaveBeenCalledWith({ resourceId: "issuer.obj1" });
     expect(client.insert).toHaveBeenCalledWith({
-      requestBody: { id: "issuer.obj1", classId: "issuer.class1", state: "ACTIVE", ticketHolderName: "Premiere" },
+      requestBody: {
+        id: "issuer.obj1",
+        classId: "issuer.class1",
+        state: "ACTIVE",
+        textModulesData: [{ header: "Event", body: "Premiere" }],
+      },
     });
     expect(client.patch).not.toHaveBeenCalled();
   });

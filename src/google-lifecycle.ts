@@ -70,14 +70,15 @@ export function buildEventTicketObject(
   input: EventTicketObjectInput,
 ): walletobjects_v1.Schema$EventTicketObject {
   const { classId, objectId, state, eventName, venue, seat, barcodeValue } = input;
+  const textModulesData = [
+    ...(eventName ? [{ header: "Event", body: sanitizeText(eventName) }] : []),
+    ...(venue ? [{ header: "Venue", body: sanitizeText(venue) }] : []),
+  ];
   return {
     id: objectId,
     classId,
     state: (state ?? "active").toUpperCase(),
-    ...(eventName ? { ticketHolderName: sanitizeText(eventName) } : {}),
-    ...(venue
-      ? { textModulesData: [{ header: "Venue", body: sanitizeText(venue) }] }
-      : {}),
+    ...(textModulesData.length ? { textModulesData } : {}),
     ...(seat
       ? {
           seatInfo: {
